@@ -74,6 +74,21 @@ app.use("/webhook/athena", (req, res, next) => {
   next();
 });
 
+app.get("/debug", (req, res) => {
+  res.json({
+    secret_set: !!process.env.WEBHOOK_SECRET,
+    credentials_set: !!process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS,
+    credentials_valid: (() => {
+      try {
+        JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS);
+        return true;
+      } catch(e) {
+        return e.message;
+      }
+    })()
+  });
+});
+
 // ─── Tool: check_availability ────────────────────────────────────────────────
 
 app.post("/webhook/athena/check-availability", async (req, res) => {
