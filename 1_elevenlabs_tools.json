@@ -1,0 +1,192 @@
+{
+  "tools": [
+    {
+      "name": "book_appointment",
+      "description": "Books a new appointment or consultation on the law firm's Google Calendar. Use this when a client wants to schedule a meeting, consultation, or hearing with a lawyer.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "client_name": {
+            "type": "string",
+            "description": "Full name of the client"
+          },
+          "client_phone": {
+            "type": "string",
+            "description": "Client's phone number"
+          },
+          "client_email": {
+            "type": "string",
+            "description": "Client's email address if provided"
+          },
+          "appointment_type": {
+            "type": "string",
+            "enum": ["initial_consultation", "follow_up", "hearing_prep", "document_review", "general_meeting"],
+            "description": "Type of appointment"
+          },
+          "preferred_date": {
+            "type": "string",
+            "description": "Preferred date in YYYY-MM-DD format"
+          },
+          "preferred_time": {
+            "type": "string",
+            "description": "Preferred time in HH:MM 24hr format"
+          },
+          "lawyer_name": {
+            "type": "string",
+            "description": "Name of the specific lawyer requested, if any"
+          },
+          "notes": {
+            "type": "string",
+            "description": "Brief description of the matter or any special notes"
+          }
+        },
+        "required": ["client_name", "client_phone", "appointment_type", "preferred_date", "preferred_time"]
+      },
+      "webhook": {
+        "url": "https://YOUR_N8N_DOMAIN/webhook/athena/book-appointment",
+        "method": "POST"
+      }
+    },
+    {
+      "name": "check_availability",
+      "description": "Checks available appointment slots on the calendar for a given date or date range. Use this before booking to confirm a time slot is free.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "Date to check in YYYY-MM-DD format"
+          },
+          "lawyer_name": {
+            "type": "string",
+            "description": "Specific lawyer to check availability for, if requested"
+          }
+        },
+        "required": ["date"]
+      },
+      "webhook": {
+        "url": "https://YOUR_N8N_DOMAIN/webhook/athena/check-availability",
+        "method": "POST"
+      }
+    },
+    {
+      "name": "forward_call",
+      "description": "Transfers the live phone call to a specific lawyer or staff member. Use this when the caller explicitly asks to speak with someone, or when the matter requires immediate legal attention.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "target_employee": {
+            "type": "string",
+            "description": "Name or role of the employee to forward to (e.g. 'John Smith', 'senior partner', 'reception')"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Brief reason for the transfer, spoken to the employee before connecting"
+          },
+          "caller_name": {
+            "type": "string",
+            "description": "Name of the caller being transferred"
+          }
+        },
+        "required": ["target_employee", "caller_name"]
+      },
+      "webhook": {
+        "url": "https://YOUR_N8N_DOMAIN/webhook/athena/forward-call",
+        "method": "POST"
+      }
+    },
+    {
+      "name": "take_message",
+      "description": "Logs a message from the caller into the client records Google Sheet and sends an SMS notification to the relevant lawyer or staff member.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "caller_name": {
+            "type": "string",
+            "description": "Full name of the caller"
+          },
+          "caller_phone": {
+            "type": "string",
+            "description": "Caller's phone number for callback"
+          },
+          "message_for": {
+            "type": "string",
+            "description": "Name of the lawyer or staff member the message is intended for"
+          },
+          "message_body": {
+            "type": "string",
+            "description": "The full message content as dictated by the caller"
+          },
+          "urgency": {
+            "type": "string",
+            "enum": ["routine", "urgent", "emergency"],
+            "description": "Urgency level of the message"
+          }
+        },
+        "required": ["caller_name", "caller_phone", "message_body", "urgency"]
+      },
+      "webhook": {
+        "url": "https://YOUR_N8N_DOMAIN/webhook/athena/take-message",
+        "method": "POST"
+      }
+    },
+    {
+      "name": "lookup_client",
+      "description": "Looks up an existing client's records in Google Sheets by name or phone number. Use this to personalise the conversation and retrieve case reference numbers.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "client_name": {
+            "type": "string",
+            "description": "Client's full name"
+          },
+          "client_phone": {
+            "type": "string",
+            "description": "Client's phone number"
+          }
+        }
+      },
+      "webhook": {
+        "url": "https://YOUR_N8N_DOMAIN/webhook/athena/lookup-client",
+        "method": "POST"
+      }
+    },
+    {
+      "name": "send_confirmation",
+      "description": "Sends an SMS or email confirmation to a client after an appointment is booked or a message is taken.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "recipient_phone": {
+            "type": "string",
+            "description": "Phone number to send SMS to"
+          },
+          "recipient_email": {
+            "type": "string",
+            "description": "Email address to send confirmation to, if provided"
+          },
+          "message_type": {
+            "type": "string",
+            "enum": ["appointment_confirmation", "appointment_reminder", "message_received"],
+            "description": "Type of confirmation to send"
+          },
+          "appointment_details": {
+            "type": "object",
+            "description": "Appointment details object (date, time, lawyer, type) — required for appointment confirmations",
+            "properties": {
+              "date": { "type": "string" },
+              "time": { "type": "string" },
+              "lawyer": { "type": "string" },
+              "type": { "type": "string" }
+            }
+          }
+        },
+        "required": ["message_type"]
+      },
+      "webhook": {
+        "url": "https://YOUR_N8N_DOMAIN/webhook/athena/send-confirmation",
+        "method": "POST"
+      }
+    }
+  ]
+}
