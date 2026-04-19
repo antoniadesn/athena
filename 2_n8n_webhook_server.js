@@ -30,9 +30,20 @@ app.use(express.json());
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
+// function getGoogleAuth() {
+//   const auth = new google.auth.GoogleAuth({
+//     keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+//     scopes: [
+//       "https://www.googleapis.com/auth/calendar",
+//       "https://www.googleapis.com/auth/spreadsheets",
+//     ],
+//   });
+//   return auth;
+// }
+
 function getGoogleAuth() {
   const auth = new google.auth.GoogleAuth({
-    keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+    credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS),
     scopes: [
       "https://www.googleapis.com/auth/calendar",
       "https://www.googleapis.com/auth/spreadsheets",
