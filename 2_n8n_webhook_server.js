@@ -61,33 +61,20 @@ const employeeDirectory = JSON.parse(process.env.EMPLOYEE_DIRECTORY || "{}");
 
 // ─── Middleware: validate ElevenLabs webhook secret ──────────────────────────
 
-// app.use("/webhook/athena", (req, res, next) => {
-//   const secret = req.headers["x-webhook-secret"];
-//   if (secret !== process.env.WEBHOOK_SECRET) {
-//     return res.status(401).json({ error: "Unauthorized" });
-//   }
-//   next();
-// });
-
 app.use("/webhook/athena", (req, res, next) => {
-  console.log("Incoming headers:", req.headers);
+  const secret = req.headers["x-webhook-secret"];
+  if (secret !== process.env.WEBHOOK_SECRET) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
   next();
 });
 
-app.get("/debug", (req, res) => {
-  res.json({
-    secret_set: !!process.env.WEBHOOK_SECRET,
-    credentials_set: !!process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS,
-    credentials_valid: (() => {
-      try {
-        JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_CREDENTIALS);
-        return true;
-      } catch(e) {
-        return e.message;
-      }
-    })()
-  });
-});
+// app.use("/webhook/athena", (req, res, next) => {
+//   console.log("Incoming headers:", req.headers);
+//   next();
+// });
+
+
 
 // ─── Tool: check_availability ────────────────────────────────────────────────
 
