@@ -628,6 +628,189 @@ app.post("/webhook/support/schedule-followup", async (req, res) => {
 });
 
 
+// ══════════════════════════════════════════════════════════════════════════════
+// AI ECOSYSTEM — Business Integration Tools
+// ══════════════════════════════════════════════════════════════════════════════
+
+// ─── Tool: get_customer (CRM) ────────────────────────────────────────────────
+
+app.post("/webhook/ecosystem/get-customer", async (req, res) => {
+  const { email, customer_id } = req.body;
+
+  try {
+    const auth = await getGoogleAuth();
+    const sheets = google.sheets({ version: "v4", auth });
+
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Customers!A:F",
+    });
+
+    const rows = response.data.values || [];
+    const headers = rows[0] || [];
+    const records = rows.slice(1);
+
+    const match = records.find((row) =>
+      (email && row[2]?.toLowerCase() === email.toLowerCase()) ||
+      (customer_id && row[0] === customer_id)
+    );
+
+    if (match) {
+      const customer = Object.fromEntries(headers.map((h, i) => [h, match[i] || ""]));
+      return res.json({ success: true, found: true, customer });
+    }
+
+    res.json({ success: true, found: false });
+  } catch (err) {
+    console.error("get-customer error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+// ─── Tool: create_customer (CRM) ─────────────────────────────────────────────
+
+app.post("/webhook/ecosystem/create-customer", async (req, res) => {
+  const { name, email, phone } = req.body;
+
+  if (!name || !email) {
+    return res.status(400).json({ success: false, error: "name and email required" });
+  }
+
+  try {
+    const auth = await getGoogleAuth();
+    const sheets = google.sheets({ version: "v4", auth });
+
+    const customerId = `CUST-${Date.now()}`;
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Customers!A:F",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[
+          customerId,
+          name,
+          email,
+          phone || "",
+          "Standard",
+          "Active"
+        ]],
+      },
+    });
+
+    res.json({
+      success: true,
+      customer_id: customerId,
+      message: `Customer ${name} created successfully.`,
+    });
+  } catch (err) {
+    console.error("create-customer error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+// ─── Tool: create_invoice (ERP) ──────────────────────────────────────────────
+
+app.post("/webhook/ecosystem/create-invoice", async (req, res) => {
+  const { customer_id, amount, description } = req.body;
+
+  if (!customer_id || !amount) {
+    return res.status(400).json({ success: false, error: "customer_id and amount required" });
+  }
+
+  try {
+    const auth = await getGoogleAuth();
+    const sheets = google.sheets({ version: "v4", auth });
+
+    const invoiceId = `INV-${Date.now()}`;
+
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: process.env.GOOGLE_SHEET_ID,
+      range: "Invoices!A:E",
+      valueInputOption: "USER_ENTERED",
+      requestBody: {
+        values: [[
+          invoiceId,
+          customer_id,
+          amount,
+          description || "",
+          new Date().toISOString()
+        ]],
+      },
+    });
+
+    res.json({
+      success: true,
+      invoice_id: invoiceId,
+      message: `Invoice ${invoiceId} created successfully.`,
+    });
+  } catch (err) {
+    console.error("create-invoice error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+// ─── Tool: send_email (Email) ────────────────────────────────────────────────
+
+app.post("/webhook/ecosystem/send-email", async (req, res) => {
+  const { to, subject, body } = req.body;
+
+  if (!to || !subject || !body) {
+    return res.status(400).json({ success: false, error: "to, subject, body required" });
+  }
+
+  try {
+    await twilioClient.messages.create({
+      from: process.env.TWILIO_FROM_NUMBER,
+      to,
+      body: `📧 ${subject}\n\n${body}`,
+    });
+
+    res.json({ success: true, message: "Email (SMS proxy) sent successfully." });
+  } catch (err) {
+    console.error("send-email error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+
+// ─── Tool: create_calendar_event (Calendar) ──────────────────────────────────
+
+app.post("/webhook/ecosystem/create-calendar-event", async (req, res) => {
+  const { title, start_time, end_time, attendees } = req.body;
+
+  if (!title || !start_time || !end_time) {
+    return res.status(400).json({ success: false, error: "title, start_time, end_time required" });
+  }
+
+  try {
+    const auth = await getGoogleAuth();
+    const calendar = google.calendar({ version: "v3", auth });
+
+    const event = await calendar.events.insert({
+      calendarId: process.env.GOOGLE_CALENDAR_ID,
+      requestBody: {
+        summary: title,
+        start: { dateTime: new Date(start_time).toISOString() },
+        end: { dateTime: new Date(end_time).toISOString() },
+        attendees: (attendees || []).map(email => ({ email })),
+      },
+    });
+
+    res.json({
+      success: true,
+      event_id: event.data.id,
+      link: event.data.htmlLink,
+    });
+  } catch (err) {
+    console.error("create-calendar-event error:", err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 // ─── Start server ─────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3000;
