@@ -8,33 +8,16 @@
  *   npm install express google-auth-library googleapis twilio dotenv
  *
  * Environment variables (.env):
- *   GOOGLE_SERVICE_ACCOUNT_CREDENTIALS – GCP service account JSON (stringified)
- *   GOOGLE_CALENDAR_ID                 – the firm's calendar ID (e.g. firm@gmail.com)
- *   GOOGLE_SHEET_ID                    – Google Sheets ID for client records
+ *   GOOGLE_SERVICE_ACCOUNT_JSON   – path to your GCP service account JSON key
+ *   GOOGLE_CALENDAR_ID            – the firm's calendar ID (e.g. firm@gmail.com)
+ *   GOOGLE_SHEET_ID               – Google Sheets ID for client records
  *   TWILIO_ACCOUNT_SID
  *   TWILIO_AUTH_TOKEN
- *   TWILIO_FROM_NUMBER                 – your Twilio phone number
- *   TWILIO_DEFAULT_NOTIFY_NUMBER       – fallback SMS number for notifications
- *   WEBHOOK_SECRET                     – shared secret to validate ElevenLabs requests
+ *   TWILIO_FROM_NUMBER            – your Twilio phone number
+ *   WEBHOOK_SECRET                – shared secret to validate ElevenLabs requests
  *
- *   EMPLOYEE_DIRECTORY  – JSON string mapping names/roles to phone numbers:
+ *   EMPLOYEE_DIRECTORY            – JSON string mapping names/roles to phone numbers:
  *     e.g. '{"john smith":"+35799000001","senior partner":"+35799000002","reception":"+35799000003"}'
- *
- * ─── Routes ──────────────────────────────────────────────────────────────────
- *
- *  Athena (Law Firm) Agent — /webhook/athena/*
- *    POST /webhook/athena/check-availability
- *    POST /webhook/athena/book-appointment
- *    POST /webhook/athena/forward-call
- *    POST /webhook/athena/take-message
- *    POST /webhook/athena/lookup-client
- *    POST /webhook/athena/send-confirmation
- *
- *  Customer Support Agent — /webhook/support/*
- *    POST /webhook/support/get-customer-info
- *    POST /webhook/support/get-order-status
- *    POST /webhook/support/create-support-ticket
- *    POST /webhook/support/schedule-followup
  */
 
 require("dotenv").config();
@@ -46,6 +29,17 @@ const app = express();
 app.use(express.json());
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
+
+// function getGoogleAuth() {
+//   const auth = new google.auth.GoogleAuth({
+//     keyFile: process.env.GOOGLE_SERVICE_ACCOUNT_JSON,
+//     scopes: [
+//       "https://www.googleapis.com/auth/calendar",
+//       "https://www.googleapis.com/auth/spreadsheets",
+//     ],
+//   });
+//   return auth;
+// }
 
 function getGoogleAuth() {
   const auth = new google.auth.GoogleAuth({
@@ -65,10 +59,9 @@ const twilioClient = twilio(
 
 const employeeDirectory = JSON.parse(process.env.EMPLOYEE_DIRECTORY || "{}");
 
-// ─── Middleware: validate ElevenLabs webhook secret ───────────────────────────
-// Applied to ALL /webhook/* routes (both agents share the same secret)
+// ─── Middleware: validate ElevenLabs webhook secret ──────────────────────────
 
-app.use("/webhook", (req, res, next) => {
+app.use("/webhook/athena", (req, res, next) => {
   const secret = req.headers["x-webhook-secret"];
   if (secret !== process.env.WEBHOOK_SECRET) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -76,10 +69,12 @@ app.use("/webhook", (req, res, next) => {
   next();
 });
 
+// app.use("/webhook/athena", (req, res, next) => {
+//   console.log("Incoming headers:", req.headers);
+//   next();
+// });
 
-// ══════════════════════════════════════════════════════════════════════════════
-// ATHENA AGENT — Law Firm Tools
-// ══════════════════════════════════════════════════════════════════════════════
+
 
 // ─── Tool: check_availability ────────────────────────────────────────────────
 
@@ -111,7 +106,7 @@ app.post("/webhook/athena/check-availability", async (req, res) => {
     const slots = [];
     for (let hour = 9; hour < 17; hour++) {
       for (let min = 0; min < 60; min += 30) {
-        const slotStart = new Date(`${date}T${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}:00`);
+        const slotStart = new Date(`${date}T${String(hour).padStart(2,"0")}:${String(min).padStart(2,"0")}:00`);
         const slotEnd = new Date(slotStart.getTime() + 30 * 60000);
         const isBusy = bookedSlots.some((b) => {
           const bs = new Date(b.start);
@@ -119,7 +114,7 @@ app.post("/webhook/athena/check-availability", async (req, res) => {
           return slotStart < be && slotEnd > bs;
         });
         if (!isBusy) {
-          slots.push(`${String(hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`);
+          slots.push(`${String(hour).padStart(2,"0")}:${String(min).padStart(2,"0")}`);
         }
       }
     }
@@ -245,6 +240,9 @@ app.post("/webhook/athena/forward-call", async (req, res) => {
       });
     }
 
+    // ElevenLabs will use this response to trigger a Twilio call transfer.
+    // The actual TwiML redirect must happen via your Twilio call flow.
+    // Return the target number so ElevenLabs/Twilio can execute the transfer.
     res.json({
       success: true,
       target_number: targetNumber,
@@ -267,6 +265,7 @@ app.post("/webhook/athena/take-message", async (req, res) => {
     const auth = await getGoogleAuth();
     const sheets = google.sheets({ version: "v4", auth });
 
+    // Log message to Google Sheets
     await sheets.spreadsheets.values.append({
       spreadsheetId: process.env.GOOGLE_SHEET_ID,
       range: "Messages!A:G",
@@ -284,6 +283,7 @@ app.post("/webhook/athena/take-message", async (req, res) => {
       },
     });
 
+    // SMS notification to relevant employee
     const recipientKey = (message_for || "").toLowerCase().trim();
     const recipientNumber = employeeDirectory[recipientKey] || process.env.TWILIO_DEFAULT_NOTIFY_NUMBER;
 
@@ -396,243 +396,9 @@ app.post("/webhook/athena/send-confirmation", async (req, res) => {
   }
 });
 
-
-// ══════════════════════════════════════════════════════════════════════════════
-// CUSTOMER SUPPORT AGENT — General Support Tools
-// ══════════════════════════════════════════════════════════════════════════════
-
-// ─── Tool: get_customer_info ─────────────────────────────────────────────────
-// Looks up a customer record by email or phone from the "Customers" sheet.
-// Expected sheet columns: ID | Name | Email | Phone | Plan | Status
-
-app.post("/webhook/support/get-customer-info", async (req, res) => {
-  const { identifier } = req.body;
-
-  if (!identifier) {
-    return res.status(400).json({ success: false, error: "identifier is required (email or phone)" });
-  }
-
-  try {
-    const auth = await getGoogleAuth();
-    const sheets = google.sheets({ version: "v4", auth });
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Customers!A:F",
-    });
-
-    const rows = response.data.values || [];
-    const headers = rows[0] || [];
-    const records = rows.slice(1);
-
-    const normalised = identifier.toLowerCase().replace(/\s/g, "");
-
-    const match = records.find((row) => {
-      const emailMatch = row[2]?.toLowerCase() === normalised;
-      const phoneMatch = row[3]?.replace(/\s/g, "") === identifier.replace(/\s/g, "");
-      return emailMatch || phoneMatch;
-    });
-
-    if (match) {
-      const customer = Object.fromEntries(headers.map((h, i) => [h, match[i] || ""]));
-      return res.json({
-        success: true,
-        found: true,
-        customer,
-        message: `Welcome back, ${customer["Name"] || "valued customer"}! I can see your account is on the ${customer["Plan"] || "standard"} plan with status: ${customer["Status"] || "active"}. How can I help you today?`,
-      });
-    }
-
-    res.json({
-      success: true,
-      found: false,
-      message: "I couldn't find an account with that email or phone number. Could you double-check the details?",
-    });
-  } catch (err) {
-    console.error("get-customer-info error:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ─── Tool: get_order_status ──────────────────────────────────────────────────
-// Looks up an order by order ID from the "Orders" sheet.
-// Expected sheet columns: Order ID | Customer Name | Status | Item | Date | Tracking
-
-app.post("/webhook/support/get-order-status", async (req, res) => {
-  const { order_id } = req.body;
-
-  if (!order_id) {
-    return res.status(400).json({ success: false, error: "order_id is required" });
-  }
-
-  try {
-    const auth = await getGoogleAuth();
-    const sheets = google.sheets({ version: "v4", auth });
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Orders!A:F",
-    });
-
-    const rows = response.data.values || [];
-    const headers = rows[0] || [];
-    const records = rows.slice(1);
-
-    const match = records.find(
-      (row) => row[0]?.toLowerCase() === order_id.toLowerCase().trim()
-    );
-
-    if (match) {
-      const order = Object.fromEntries(headers.map((h, i) => [h, match[i] || ""]));
-      return res.json({
-        success: true,
-        found: true,
-        order,
-        message: `Order ${order_id} is currently ${order["Status"] || "being processed"}${order["Tracking"] ? ". Tracking number: " + order["Tracking"] : ""}. Is there anything else I can help you with?`,
-      });
-    }
-
-    res.json({
-      success: true,
-      found: false,
-      message: `I couldn't find an order with ID ${order_id}. Please double-check the order number — it's usually found in your confirmation email.`,
-    });
-  } catch (err) {
-    console.error("get-order-status error:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ─── Tool: create_support_ticket ─────────────────────────────────────────────
-// Logs a new support ticket to the "SupportTickets" sheet and SMS-notifies the team.
-// Expected sheet columns: Timestamp | Name | Email | Issue | Priority | Status
-
-app.post("/webhook/support/create-support-ticket", async (req, res) => {
-  const { customer_email, customer_name, issue_summary, priority } = req.body;
-
-  if (!customer_email || !issue_summary) {
-    return res.status(400).json({ success: false, error: "customer_email and issue_summary are required" });
-  }
-
-  const validPriorities = ["low", "medium", "high"];
-  const ticketPriority = validPriorities.includes(priority) ? priority : "medium";
-
-  try {
-    const auth = await getGoogleAuth();
-    const sheets = google.sheets({ version: "v4", auth });
-
-    const ticketId = `TKT-${Date.now()}`;
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "SupportTickets!A:G",
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [[
-          new Date().toISOString(),
-          ticketId,
-          customer_name || "",
-          customer_email,
-          issue_summary,
-          ticketPriority,
-          "Open",
-        ]],
-      },
-    });
-
-    // Notify support team via SMS for high-priority tickets
-    if (ticketPriority === "high" && process.env.TWILIO_DEFAULT_NOTIFY_NUMBER) {
-      await twilioClient.messages.create({
-        from: process.env.TWILIO_FROM_NUMBER,
-        to: process.env.TWILIO_DEFAULT_NOTIFY_NUMBER,
-        body: `🚨 High-Priority Support Ticket\nID: ${ticketId}\nFrom: ${customer_name || customer_email}\nIssue: ${issue_summary}`,
-      });
-    }
-
-    const eta = ticketPriority === "high" ? "2 hours" : ticketPriority === "medium" ? "within 24 hours" : "within 2 business days";
-
-    res.json({
-      success: true,
-      ticket_id: ticketId,
-      priority: ticketPriority,
-      message: `I've created a support ticket for you (${ticketId}). Our team will be in touch ${eta}. Is there anything else I can help you with in the meantime?`,
-    });
-  } catch (err) {
-    console.error("create-support-ticket error:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-// ─── Tool: schedule_followup ─────────────────────────────────────────────────
-// Logs a callback or follow-up email request to the "Followups" sheet
-// and sends an SMS confirmation to the customer.
-// Expected sheet columns: Timestamp | Name | Email | Phone | Type | Preferred Time | Notes | Status
-
-app.post("/webhook/support/schedule-followup", async (req, res) => {
-  const { customer_email, customer_name, customer_phone, followup_type, preferred_time, notes } = req.body;
-
-  if (!customer_email || !followup_type) {
-    return res.status(400).json({ success: false, error: "customer_email and followup_type are required" });
-  }
-
-  const validTypes = ["email", "callback"];
-  const type = validTypes.includes(followup_type) ? followup_type : "email";
-
-  try {
-    const auth = await getGoogleAuth();
-    const sheets = google.sheets({ version: "v4", auth });
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: process.env.GOOGLE_SHEET_ID,
-      range: "Followups!A:H",
-      valueInputOption: "USER_ENTERED",
-      requestBody: {
-        values: [[
-          new Date().toISOString(),
-          customer_name || "",
-          customer_email,
-          customer_phone || "",
-          type,
-          preferred_time || "As soon as possible",
-          notes || "",
-          "Scheduled",
-        ]],
-      },
-    });
-
-    // SMS confirmation to customer
-    if (customer_phone) {
-      const smsBody = type === "callback"
-        ? `📞 Callback Scheduled\nHi ${customer_name || "there"}, we'll call you back${preferred_time ? " around " + preferred_time : " as soon as possible"}. Thank you for your patience!`
-        : `📧 Follow-Up Scheduled\nHi ${customer_name || "there"}, we'll send you a follow-up email shortly. Thank you!`;
-
-      await twilioClient.messages.create({
-        from: process.env.TWILIO_FROM_NUMBER,
-        to: customer_phone,
-        body: smsBody,
-      });
-    }
-
-    res.json({
-      success: true,
-      followup_type: type,
-      preferred_time: preferred_time || "as soon as possible",
-      message: type === "callback"
-        ? `Perfect! I've scheduled a callback for you${preferred_time ? " around " + preferred_time : ""}. You'll receive an SMS confirmation. Is there anything else I can help with?`
-        : `Great! I've scheduled a follow-up email for you. You'll hear from us shortly. Anything else I can help with?`,
-    });
-  } catch (err) {
-    console.error("schedule-followup error:", err);
-    res.status(500).json({ success: false, error: err.message });
-  }
-});
-
-
 // ─── Start server ─────────────────────────────────────────────────────────────
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Webhook server running on port ${PORT}`);
-  console.log(`  Athena tools:  /webhook/athena/*`);
-  console.log(`  Support tools: /webhook/support/*`);
+  console.log(`Athena webhook server running on port ${PORT}`);
 });
